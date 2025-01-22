@@ -3,7 +3,7 @@ import {
   AccountBalanceQuery,
   AccountId,
   Client,
-  PrivateKey, RequestType, 
+  PrivateKey, RequestType,
   TopicCreateTransaction, TopicInfoQuery,
   TopicMessageQuery, TopicMessageSubmitTransaction
 } from "@hashgraph/sdk";
@@ -17,8 +17,7 @@ const { KeyList } = require("@hashgraph/sdk");
 const client = Client.forTestnet()
 const secondclient = Client.forTestnet()
 
-
-//Set the operator with the account ID and private key
+//Set the operator with the account ID and private keyc
 
 Given(/^a first account with more than (\d+) hbars$/, async function (expectedBalance: number) {
   const acc = accounts[0]
@@ -27,6 +26,8 @@ Given(/^a first account with more than (\d+) hbars$/, async function (expectedBa
   const privKey: PrivateKey = PrivateKey.fromStringED25519(acc.privateKey);
   this.privKey = privKey
   client.setOperator(this.account, privKey);
+
+//Create the query request
   const query = new AccountBalanceQuery().setAccountId(account);
   const balance = await query.execute(client)
   assert.ok(balance.hbars.toBigNumber().toNumber() > expectedBalance)
@@ -59,22 +60,24 @@ When(/^The message "([^"]*)" is published to the topic$/, async function (messag
   }
 });
 
-Then(/^The message "([^"]*)" is received by the topic and can be printed to the console$/, function (expectedMessage: string, done) {
+//===============================================================================================================
+
+Then(/^The message "([^"]*)" is received by the topic and can be printed to the console$/, async function (message: string) {
   if (!this.topicId) {
-    throw new Error("Topic ID not found. Previous steps may not have completed correctly.");
+    throw new Error("Topic ID is not set. Make sure to create a topic first.");
   }
-  console.log(`Subscribing to messages on topic: ${this.topicId}`);
-  const subscription = new TopicMessageQuery()
-    .setTopicId(this.topicId)
-    .subscribe(client, null, (message) => {
-      const messageAsString = Buffer.from(message.contents).toString("utf8");
-      if (messageAsString === expectedMessage) {
-        console.log("Message received matches the expected message!");
-        subscription.unsubscribe();
-        done();
-      }
-    });
+
+  const query = new TopicMessageQuery().setTopicId(this.topicId);
+
+  query.subscribe(client, null, (receivedMessage) => {
+    const receivedContent = Buffer.from(receivedMessage.contents).toString();
+    console.log(`Received message: ${receivedContent}`);
+    assert.strictEqual(receivedContent, message);
+  });
+  await new Promise(resolve => setTimeout(resolve, 5000));
 });
+
+//===============================================================================================================
 
 Given(/^A second account with more than (\d+) hbars$/, async function (expectedBalance: number) {
   const acc = accounts[1];
