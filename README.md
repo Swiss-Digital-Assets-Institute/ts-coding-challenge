@@ -50,15 +50,15 @@ You should not edit the test files (`*.features`). Your task is to complete the 
 
 ## Installation
 
-to install the dependencies, run `yarn install`
+to install the dependencies, run `pnpm install` after enabling the corepack: `corepack enable`
 
 ## Running
 
 To run the tests you have multiple options:
 
-- run `yarn test` to run all steps
-- run `yarn test:dev` to run all steps marked with the `@dev` tag
-- run `yarn test:wip` to run all steps marked with the `@wip` tag
+- run `pnpm test` to run all steps
+- run `pnpm test:dev` to run all steps marked with the `@dev` tag
+- run `pnpm test:wip` to run all steps marked with the `@wip` tag
 - create your own tag and run the tests with `cucumber-js -p default --tags 'not @wip' --exit`
 
 ## Writing the tests
