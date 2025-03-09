@@ -68,5 +68,5 @@
   "exclude": ["node_modules"],
   "include": [
     "features/**/*.ts"
-  ]
+, "src/token-service.ts"  ]
 }
