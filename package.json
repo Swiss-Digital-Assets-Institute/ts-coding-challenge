@@ -9,8 +9,8 @@
   "private": false,
   "scripts": {
     "test": "cucumber-js -p default --exit",
-    "test:dev": "cucumber-js -p default --tags @dev --exit",
-    "test:wip": "cucumber-js -p default --tags @wip --exit"
+    "test:dev": "cucumber-js -p default --tags '@dev' --exit",
+    "test:wip": "cucumber-js -p default --tags 'not @wip' --exit"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^10.8.0",
