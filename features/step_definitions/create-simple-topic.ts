@@ -1,13 +1,15 @@
-import { Given, Then, When } from "@cucumber/cucumber";
+import assert from "node:assert";
+import { accounts, Account } from "../../src/config";
+import { After, Given, Then, When } from "@cucumber/cucumber";
 import {
-  Client, AccountId, KeyList, Key,
-  PrivateKey, RequestType, TopicId,
+  Client, AccountId, KeyList, Key, PrivateKey, TopicId,
   AccountBalanceQuery, TopicCreateTransaction,
   TopicMessageQuery, TopicMessageSubmitTransaction,
+  AccountCreateTransaction,
+  Hbar,
+  AccountDeleteTransaction,
+  TopicDeleteTransaction,
 } from "@hashgraph/sdk";
-import { accounts, Account } from "../../src/config";
-import assert from "node:assert";
-import ConsensusSubmitMessage = RequestType.ConsensusSubmitMessage;
 
 // Pre-configured client for test network (testnet)
 const client = Client.forTestnet();
@@ -17,17 +19,43 @@ let thresholdKey: Key;
 let firstAccount: Account;
 let secondAccount: Account;
 
-Given(/^a first account with more than (\d+) hbars$/, async function (expectedBalance: number) {
-  const acc = accounts[1]
-  const account: AccountId = AccountId.fromString(acc.id);
-  const privKey: PrivateKey = PrivateKey.fromStringED25519(acc.privateKey);
-  client.setOperator(account, privKey);
-  firstAccount = acc;
+// pruvate methods
+const createAccountWithHBar = async (client: Client, hbarAmount: number): Promise<Account> => {
+  const newPrivateKey = PrivateKey.generateED25519();
+  const newPublicKey = newPrivateKey.publicKey;
 
-  // Create the query request
-  const query = new AccountBalanceQuery().setAccountId(account);
-  const balance = await query.execute(client);
-  assert.ok(balance.hbars.toBigNumber().toNumber() > expectedBalance);
+  // Create a new account with 10 HBAR
+  const transaction = new AccountCreateTransaction()
+    .setKey(newPublicKey)
+    .setInitialBalance(new Hbar(hbarAmount));
+
+  // Submit the transaction and get the receipt
+  const txResponse = await transaction.execute(client);
+  const receipt = await txResponse.getReceipt(client);
+  const newAccountId = receipt.accountId;
+
+  return {
+    id: newAccountId!.toString(),
+    privateKey: newPrivateKey.toString()
+  };
+}
+
+Given(/^a first account with more than (\d+) hbars$/, async function (expectedBalance: number) {
+  for (let i = 0; i < accounts.length; i++) {
+    const acc = accounts[i]
+    const account: AccountId = AccountId.fromString(acc.id);
+    const privKey: PrivateKey = PrivateKey.fromStringED25519(acc.privateKey);
+    // Create the query request
+    const query = new AccountBalanceQuery().setAccountId(account);
+    const balance = await query.execute(client);
+
+    if (balance.hbars.toBigNumber().toNumber() > expectedBalance) {
+      client.setOperator(account, privKey);
+      firstAccount = acc;
+      assert.ok(balance.hbars.toBigNumber().toNumber() > expectedBalance);
+      return;
+    }
+  }
 });
 
 When(/^A topic is created with the memo "([^"]*)" with the first account as the submit key$/, async function (memo: string) {
@@ -42,7 +70,7 @@ When(/^A topic is created with the memo "([^"]*)" with the first account as the 
 });
 
 When(/^The message "([^"]*)" is published to the topic$/, async function (message: string) {
-  let transaction = await new TopicMessageSubmitTransaction()
+  let transaction = new TopicMessageSubmitTransaction()
     .setTopicId(topicId)
     .setMessage(message)
     .freezeWith(client);
@@ -57,7 +85,7 @@ When(/^The message "([^"]*)" is published to the topic$/, async function (messag
 });
 
 Then(/^The message "([^"]*)" is received by the topic and can be printed to the console$/, async function (expectedMessage: string) {
-  await new TopicMessageQuery()
+  new TopicMessageQuery()
     .setTopicId(topicId)
     .setStartTime(0)
     .subscribe(client, null, (message) => {
@@ -68,17 +96,7 @@ Then(/^The message "([^"]*)" is received by the topic and can be printed to the 
 });
 
 Given(/^A second account with more than (\d+) hbars$/, async function (expectedBalance: number) {
-  const acc = accounts[4]
-  const account: AccountId = AccountId.fromString(acc.id);
-  const privKey: PrivateKey = PrivateKey.fromStringED25519(acc.privateKey);
-  client.setOperator(account, privKey);
-  secondAccount = acc;
-
-  // Create the query request
-  const query = new AccountBalanceQuery().setAccountId(account);
-  const balance = await query.execute(client);
-  assert.ok(balance.hbars.toBigNumber().toNumber() > expectedBalance);
-
+  secondAccount = await createAccountWithHBar(client, expectedBalance);
 });
 
 Given(/^A (\d+) of (\d+) threshold key with the first and second account$/, async function (requiredSigns: number, totalSigns: number) {
