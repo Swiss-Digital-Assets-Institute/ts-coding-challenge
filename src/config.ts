@@ -15,14 +15,14 @@ export const accounts: Account[] = [
       "8455d47d1948250fa288b1308628bfe42d169cf46fff9c92e81a9cea13250616",
   },
   {
-    id: "0.0.5928622", //Test 3
+    id: "0.0.5994893", //Test 3
     privateKey:
-      "3030020100300706052b8104000a042204209bbd323bc30b53fafc7fde468d97492d40c536497950509cf0b1fe6b2db2e564",
+      "869d4cbdecbcd265493ca3873fec058180a033847f85741d579d521a5997b461",
   },
   {
-    id: "0.0.5893216", //Test 4
+    id: "0.0.5994919", //Test 4
     privateKey:
-      "302e020100300506032b65700422042059adb974051aa3f8c9b1fe1005b73561c3b45242dc8dc4cb6d2eb0cb293b532d",
+      "53dea6e31a4a3aa8c738e0f0244cd380082c09503d6a4bddb981fe5ac603f47c",
   },
   {
     id: "0.0.5985408", //Test 5
