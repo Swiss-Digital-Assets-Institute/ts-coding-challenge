@@ -200,6 +200,7 @@ Given(/^A second Hedera account$/, async function () {
 });
 Given(
   /^A token named Test Token \(HTT\) with (\d+) tokens$/,
+  { timeout: 10000 },
   async function (tokenCount: number) {
     const { accountId, privateKey } = getAccount(0);
     const tokenCreateTx = await new TokenCreateTransaction()
@@ -224,6 +225,7 @@ Given(
 );
 Given(
   /^The first account holds (\d+) HTT tokens$/,
+  { timeout: 10000 },
   async function (tokenCount: number) {
     const { accountId } = getAccount(0);
     const tokenBalance = await getTokenBalance(accountId, this.tokenId!);
@@ -232,6 +234,7 @@ Given(
 );
 Given(
   /^The second account holds (\d+) HTT tokens$/,
+  { timeout: 10000 },
   async function (tokenCount: number) {
     const { accountId, privateKey } = getAccount(0);
     const { accountId: accountId2, privateKey: privateKey2 } = getAccount(1);
@@ -249,6 +252,7 @@ Given(
 );
 When(
   /^The first account creates a transaction to transfer (\d+) HTT tokens to the second account$/,
+  { timeout: 10000 },
   async function (tokenCount: number) {
     const { accountId, privateKey } = getAccount(0);
     const { accountId: accountId2, privateKey: privateKey2 } = getAccount(1);
@@ -260,14 +264,20 @@ When(
     this.transferTx = transferTx;
   }
 );
-When(/^The first account submits the transaction$/, async function () {
-  const response = await this.transferTx.execute(client);
-  const transferResponse = await response.getReceipt(client);
-  this.transferReceipt = await response.getRecord(client);
-  assert.strictEqual(transferResponse.status.toString(), "SUCCESS");
-});
+When(
+  /^The first account submits the transaction$/,
+  { timeout: 10000 },
+  async function () {
+    const response = await this.transferTx.execute(client);
+    const transferResponse = await response.getReceipt(client);
+    this.transferReceipt = await response.getRecord(client);
+    assert.strictEqual(transferResponse.status.toString(), "SUCCESS");
+  }
+);
 When(
   /^The second account creates a transaction to transfer (\d+) HTT tokens to the first account$/,
+  { timeout: 10000 },
+
   async function (tokenCount: number) {
     const { accountId, privateKey } = getAccount(0);
     const { accountId: accountId2, privateKey: privateKey2 } = getAccount(1);
