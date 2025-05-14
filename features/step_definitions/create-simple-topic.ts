@@ -74,8 +74,8 @@ Then(
     new TopicMessageQuery()
       .setTopicId(this.topicId)
       .setStartTime(0)
-      .subscribe(client, null, (message) => {
-        const decodedMessage = Buffer.from(message.contents).toString();
+      .subscribe(client, null, (mess) => {
+        const decodedMessage = Buffer.from(mess.contents).toString();
         console.log("Received message by the topic:", decodedMessage);
         assert.strictEqual(decodedMessage, message);
       });
