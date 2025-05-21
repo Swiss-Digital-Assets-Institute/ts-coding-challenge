@@ -10,6 +10,7 @@ import {
 import { accounts } from "../../src/config";
 import assert from "node:assert";
 import ConsensusSubmitMessage = RequestType.ConsensusSubmitMessage;
+import { KeyList } from "@hashgraph/sdk";
 
 // Pre-configured client for test network (testnet)
 const client = Client.forTestnet()
@@ -62,37 +63,68 @@ When(/^The message "([^"]*)" is published to the topic$/, async function (messag
   this.sentMessage = message;
 });
 
-Then(/^The message "([^"]*)" is received by the topic and can be printed to the console$/, async function (expectedMessage: string) {
-  await new Promise<void>((resolve, reject) => {
-    new TopicMessageQuery()
-      .setTopicId(this.topicId)
-      .setStartTime(0)
-      .subscribe(
-        client,
-        (error) => {
-          console.error("Error receiving message:", error);
-          reject(error);
-        },
-        (message) => {
-          const msgString = Buffer.from(message.contents).toString("utf8");
-          console.log("Received message:", msgString);
+Then(/^The message "([^"]*)" is received by the topic and can be printed to the console$/,
+  {timeout: 20000},
+  async function (expectedMessage: string) {
+    await new Promise<void>((resolve, reject) => {
+      new TopicMessageQuery()
+        .setTopicId(this.topicId)
+        .setStartTime(0)
+        .subscribe(
+          client,
+          (error) => {
+            console.error("Error receiving message:", error);
+            reject(error);
+          },
+          (message) => {
+            const msgString = Buffer.from(message.contents).toString("utf8");
+            console.log("Received message:", msgString);
 
-          if (msgString === expectedMessage) {
-            resolve();
+            if (msgString === expectedMessage) {
+              resolve();
+            }
           }
-        }
-      );
-  });
+        );
+    });
 });
 
-Given(/^A second account with more than (\d+) hbars$/, async function () {
+Given(/^A second account with more than (\d+) hbars$/, async function (expectedBalance: number) {
+  const acc1 = accounts[1]
+  const account1: AccountId = AccountId.fromString(acc1.id);
+  this.account1 = account1
+  const privKey1: PrivateKey = PrivateKey.fromStringED25519(acc1.privateKey);
+  this.privKey1 = privKey1
+  const operatorKey1 = PrivateKey.fromStringECDSA(acc1.privateKey)
+  this.operatorKey1 = operatorKey1;
+  client.setOperator(this.account1, privKey1);
 
+//Create the query request
+  const query = new AccountBalanceQuery().setAccountId(account1);
+  const balance = await query.execute(client)
+  assert.ok(balance.hbars.toBigNumber().toNumber() > expectedBalance)
 });
 
-Given(/^A (\d+) of (\d+) threshold key with the first and second account$/, async function () {
-
+Given(/^A (\d+) of (\d+) threshold key with the first and second account$/, async function (threshold: number, total: number) {
+  const publicKeyList = [
+    this.privKey.publicKey,
+    this.privKey1.publicKey
+  ];
+  
+  const thresholdKey = new KeyList(publicKeyList, threshold);
+  this.thresholdKey = thresholdKey;
+  assert.strictEqual(thresholdKey._threshold, threshold);
 });
 
-When(/^A topic is created with the memo "([^"]*)" with the threshold key as the submit key$/, async function () {
+When(/^A topic is created with the memo "([^"]*)" with the threshold key as the submit key$/, async function (memo: string) {
+  // Create a new topic with the specified memo and submit key
+  const transaction = new TopicCreateTransaction()
+  .setTopicMemo(memo)
+  .setSubmitKey(this.thresholdKey);
 
+  // Submit the transaction and get the receipt
+  const txResponse1 = await transaction.execute(client);
+  const receipt = await txResponse1.getReceipt(client);
+  
+  // Store the topic ID for later use
+  this.topicId = receipt.topicId;
 });
