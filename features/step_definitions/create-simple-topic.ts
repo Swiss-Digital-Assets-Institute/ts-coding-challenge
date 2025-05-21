@@ -22,6 +22,8 @@ Given(/^a first account with more than (\d+) hbars$/, async function (expectedBa
   this.account = account
   const privKey: PrivateKey = PrivateKey.fromStringED25519(acc.privateKey);
   this.privKey = privKey
+  const operatorKey = PrivateKey.fromStringECDSA(acc.privateKey)
+  this.operatorKey = operatorKey;
   client.setOperator(this.account, privKey);
 
 //Create the query request
@@ -31,12 +33,56 @@ Given(/^a first account with more than (\d+) hbars$/, async function (expectedBa
 });
 
 When(/^A topic is created with the memo "([^"]*)" with the first account as the submit key$/, async function (memo: string) {
+  // Create a new topic with the specified memo and submit key
+  const transaction = new TopicCreateTransaction()
+  .setTopicMemo(memo)
+  .setSubmitKey(this.privKey.publicKey);
+
+  // Submit the transaction and get the receipt
+  const txResponse = await transaction.execute(client);
+  const receipt = await txResponse.getReceipt(client);
+  
+  // Store the topic ID for later use
+  this.topicId = receipt.topicId;
 });
 
 When(/^The message "([^"]*)" is published to the topic$/, async function (message: string) {
+  // Create a new message submit transaction
+  const transaction = new TopicMessageSubmitTransaction()
+  .setTopicId(this.topicId)
+  .setMessage(message)
+  .freezeWith(client);
+
+  // Sign with the submit key and execute
+  const topicMsgSubmitTxSigned = (await transaction.sign(this.operatorKey));
+  const topicMsgSubmitTxSubmitted = await topicMsgSubmitTxSigned.execute(client);
+  await topicMsgSubmitTxSubmitted.getReceipt(client);
+  
+  // Store the message for verification
+  this.sentMessage = message;
 });
 
-Then(/^The message "([^"]*)" is received by the topic and can be printed to the console$/, async function (message: string) {
+Then(/^The message "([^"]*)" is received by the topic and can be printed to the console$/, async function (expectedMessage: string) {
+  await new Promise<void>((resolve, reject) => {
+    new TopicMessageQuery()
+      .setTopicId(this.topicId)
+      .setStartTime(0)
+      .subscribe(
+        client,
+        (error) => {
+          console.error("Error receiving message:", error);
+          reject(error);
+        },
+        (message) => {
+          const msgString = Buffer.from(message.contents).toString("utf8");
+          console.log("Received message:", msgString);
+
+          if (msgString === expectedMessage) {
+            resolve();
+          }
+        }
+      );
+  });
 });
 
 Given(/^A second account with more than (\d+) hbars$/, async function () {
