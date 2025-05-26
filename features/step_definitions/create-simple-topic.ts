@@ -78,7 +78,6 @@ Then(/^The message "([^"]*)" is received by the topic and can be printed to the 
           },
           (message) => {
             const msgString = Buffer.from(message.contents).toString("utf8");
-            console.log("Received message:", msgString);
 
             if (msgString === expectedMessage) {
               resolve();
