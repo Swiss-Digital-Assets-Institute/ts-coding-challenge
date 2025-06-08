@@ -2,7 +2,9 @@ import { Given, Then, When } from "@cucumber/cucumber";
 import { accounts } from "../../src/config";
 import { AccountBalanceQuery, AccountId, Client, PrivateKey,TokenCreateTransaction, TokenInfoQuery, TokenMintTransaction,TransferTransaction,Status,TokenAssociateTransaction,TokenBurnTransaction  } from "@hashgraph/sdk";
 import assert from "node:assert";
+import { setDefaultTimeout } from '@cucumber/cucumber';
 
+setDefaultTimeout(15000); // Set timeout to 15 seconds
 const client = Client.forTestnet()
 Given(/^A Hedera account with more than (\d+) hbar$/, async function (expectedBalance: number) {
   const account = accounts[0]
@@ -455,24 +457,342 @@ Then(/^The first account has paid for the transaction fee$/, async function () {
   assert.ok(finalHbarBalance > 0, `First account hbar balance is zero or negative: ${finalHbarBalance}`);
   console.log("First account paid transaction fee (positive hbar balance confirmed)");
 });
-Given(/^A first hedera account with more than (\d+) hbar and (\d+) HTT tokens$/, async function () {
 
+
+// Existing step: First account with more than X hbar and Y HTT tokens
+Given(/^A first hedera account with more than (\d+) hbar and (\d+) HTT tokens$/, async function (expectedHbarBalance: number, expectedTokenBalance: number) {
+  const account = accounts[0];
+  const FIRST_ACCOUNT_ID = AccountId.fromString(account.id);
+  const FIRST_PRIVATE_KEY = PrivateKey.fromStringED25519(account.privateKey);
+  client.setOperator(FIRST_ACCOUNT_ID, FIRST_PRIVATE_KEY);
+
+  const tokenId = this.tokenId;
+  assert.ok(tokenId, "Token ID not found. Ensure token creation step ran first.");
+
+  const balanceQuery = new AccountBalanceQuery().setAccountId(FIRST_ACCOUNT_ID);
+  const balance = await balanceQuery.execute(client);
+  const hbarBalance = balance.hbars.toBigNumber().toNumber();
+  console.log(`First account hbar balance: ${hbarBalance}`);
+  assert.ok(hbarBalance > expectedHbarBalance, `Insufficient hbar: ${hbarBalance} <= ${expectedHbarBalance}`);
+
+  const tokenBalance = balance.tokens ? balance.tokens.get(tokenId)?.toNumber() || 0 : 0;
+  console.log(`First account token balance: ${tokenBalance}`);
+
+  if (tokenBalance < expectedTokenBalance) {
+    const mintAmount = expectedTokenBalance - tokenBalance;
+    const mintTx = new TokenMintTransaction()
+      .setTokenId(tokenId)
+      .setAmount(mintAmount);
+
+    console.log(`Minting ${mintAmount} tokens for first account...`);
+    const txResponse = await mintTx.execute(client);
+    const receipt = await txResponse.getReceipt(client);
+    assert.equal(receipt.status, Status.Success, `Token mint failed: ${receipt.status}`);
+  } else if (tokenBalance > expectedTokenBalance) {
+    const burnAmount = tokenBalance - expectedTokenBalance;
+    const burnTx = new TokenBurnTransaction()
+      .setTokenId(tokenId)
+      .setAmount(burnAmount);
+
+    console.log(`Burning ${burnAmount} tokens from first account...`);
+    const txResponse = await burnTx.execute(client);
+    const receipt = await txResponse.getReceipt(client);
+    assert.equal(receipt.status, Status.Success, `Token burn failed: ${receipt.status}`);
+  }
+
+  const finalBalanceQuery = new AccountBalanceQuery().setAccountId(FIRST_ACCOUNT_ID);
+  const finalBalance = await finalBalanceQuery.execute(client);
+  const finalHbarBalance = finalBalance.hbars.toBigNumber().toNumber();
+  const finalTokenBalance = finalBalance.tokens ? finalBalance.tokens.get(tokenId)?.toNumber() || 0 : 0;
+  console.log(`Final first account hbar balance: ${finalHbarBalance}, token balance: ${finalTokenBalance}`);
+  assert.ok(finalHbarBalance > expectedHbarBalance, `Final hbar balance too low: ${finalHbarBalance} <= ${expectedHbarBalance}`);
+  assert.equal(finalTokenBalance, expectedTokenBalance, `Token balance mismatch: expected ${expectedTokenBalance}, got ${finalTokenBalance}`);
 });
-Given(/^A second Hedera account with (\d+) hbar and (\d+) HTT tokens$/, async function () {
 
+// Existing step: Second account with X hbar and Y HTT tokens
+Given(/^A second Hedera account with (\d+) hbar and (\d+) HTT tokens$/, async function (expectedHbarBalance: number, expectedTokenBalance: number) {
+    const account = accounts[1];
+    const SECOND_ACCOUNT_ID = AccountId.fromString(account.id);
+    const SECOND_PRIVATE_KEY = PrivateKey.fromStringED25519(account.privateKey);
+    client.setOperator(SECOND_ACCOUNT_ID, SECOND_PRIVATE_KEY);
+
+    const tokenId = this.tokenId;
+    assert.ok(tokenId, "Token ID not found. Ensure token creation step ran first.");
+
+    // Verify hbar balance
+    const balanceQuery = new AccountBalanceQuery().setAccountId(SECOND_ACCOUNT_ID);
+    const balance = await balanceQuery.execute(client);
+    const hbarBalance = balance.hbars.toBigNumber().toNumber();
+    console.log(`Second account hbar balance: ${hbarBalance}`);
+    assert.ok(hbarBalance >= expectedHbarBalance, `Insufficient hbar: ${hbarBalance} < ${expectedHbarBalance}`);
+
+    // Associate second account with token if not already associated
+    if (!balance.tokens) {
+        const associateTx = new TokenAssociateTransaction()
+        .setAccountId(SECOND_ACCOUNT_ID)
+        .setTokenIds([tokenId]);
+        console.log("Associating second account with token...");
+        const associateResponse = await associateTx.execute(client);
+        const associateReceipt = await associateResponse.getReceipt(client);
+        assert.equal(associateReceipt.status, Status.Success, `Token association failed: ${associateReceipt.status}`);
+    }
+
+    // Verify and adjust token balance
+    const tokenBalance = balance.tokens ? balance.tokens.get(tokenId)?.toNumber() || 0 : 0;
+    console.log(`Second account token balance before adjustment: ${tokenBalance}`);
+
+    if (tokenBalance < expectedTokenBalance) {
+        const firstAccount = accounts[0];
+        const FIRST_ACCOUNT_ID = AccountId.fromString(firstAccount.id);
+        const FIRST_PRIVATE_KEY = PrivateKey.fromStringED25519(firstAccount.privateKey);
+        client.setOperator(FIRST_ACCOUNT_ID, FIRST_PRIVATE_KEY);
+
+        // Mint tokens to treasury
+        const mintAmount = expectedTokenBalance - tokenBalance;
+        const mintTx = new TokenMintTransaction()
+        .setTokenId(tokenId)
+        .setAmount(mintAmount);
+
+        console.log(`Minting ${mintAmount} tokens to treasury...`);
+        const mintResponse = await mintTx.execute(client);
+        const mintReceipt = await mintResponse.getReceipt(client);
+        assert.equal(mintReceipt.status, Status.Success, `Token mint failed: ${mintReceipt.status}`);
+
+        // Transfer minted tokens to second account
+        const transferTx = new TransferTransaction()
+        .addTokenTransfer(tokenId, FIRST_ACCOUNT_ID, -mintAmount)
+        .addTokenTransfer(tokenId, SECOND_ACCOUNT_ID, mintAmount);
+
+        console.log(`Transferring ${mintAmount} tokens to second account...`);
+        const transferResponse = await transferTx.execute(client);
+        const transferReceipt = await transferResponse.getReceipt(client);
+        assert.equal(transferReceipt.status, Status.Success, `Token transfer failed: ${transferReceipt.status}`);
+    } else if (tokenBalance > expectedTokenBalance) {
+        const firstAccount = accounts[0];
+        const FIRST_ACCOUNT_ID = AccountId.fromString(firstAccount.id);
+        const FIRST_PRIVATE_KEY = PrivateKey.fromStringED25519(firstAccount.privateKey);
+        client.setOperator(FIRST_ACCOUNT_ID, FIRST_PRIVATE_KEY);
+
+        // Transfer excess tokens from second account to treasury
+        const burnAmount = tokenBalance - expectedTokenBalance;
+        const transferTx = new TransferTransaction()
+        .addTokenTransfer(tokenId, SECOND_ACCOUNT_ID, -burnAmount)
+        .addTokenTransfer(tokenId, FIRST_ACCOUNT_ID, burnAmount);
+
+        console.log(`Transferring ${burnAmount} excess tokens from second account to treasury...`);
+        const transferResponse = await transferTx.execute(client);
+        const transferReceipt = await transferResponse.getReceipt(client);
+        assert.equal(transferReceipt.status, Status.Success, `Token transfer failed: ${transferReceipt.status}`);
+
+        // Burn excess tokens from treasury
+        const burnTx = new TokenBurnTransaction()
+        .setTokenId(tokenId)
+        .setAmount(burnAmount);
+
+        console.log(`Burning ${burnAmount} tokens from treasury...`);
+        const burnResponse = await burnTx.execute(client);
+        const burnReceipt = await burnResponse.getReceipt(client);
+        assert.equal(burnReceipt.status, Status.Success, `Token burn failed: ${burnReceipt.status}`);
+    }
+
+    // Verify final balances
+    client.setOperator(SECOND_ACCOUNT_ID, SECOND_PRIVATE_KEY);
+    const finalBalanceQuery = new AccountBalanceQuery().setAccountId(SECOND_ACCOUNT_ID);
+    const finalBalance = await finalBalanceQuery.execute(client);
+    const finalHbarBalance = finalBalance.hbars.toBigNumber().toNumber();
+    const finalTokenBalance = finalBalance.tokens ? finalBalance.tokens.get(tokenId)?.toNumber() || 0 : 0;
+    console.log(`Final second account hbar balance: ${finalHbarBalance}, token balance: ${finalTokenBalance}`);
+    assert.ok(finalHbarBalance >= expectedHbarBalance, `Final hbar balance too low: ${finalHbarBalance} < ${expectedHbarBalance}`);
+    assert.equal(finalTokenBalance, expectedTokenBalance, `Token balance mismatch: expected ${expectedTokenBalance}, got ${finalTokenBalance}`);
+    });
+
+// Existing step: Third account with X hbar and Y HTT tokens
+Given(/^A third Hedera account with (\d+) hbar and (\d+) HTT tokens$/, async function (expectedHbarBalance: number, expectedTokenBalance: number) {
+  const account = accounts[2];
+  const THIRD_ACCOUNT_ID = AccountId.fromString(account.id);
+  const THIRD_PRIVATE_KEY = PrivateKey.fromStringED25519(account.privateKey);
+  client.setOperator(THIRD_ACCOUNT_ID, THIRD_PRIVATE_KEY);
+
+  const tokenId = this.tokenId;
+  assert.ok(tokenId, "Token ID not found. Ensure token creation step ran first.");
+
+  const balanceQuery = new AccountBalanceQuery().setAccountId(THIRD_ACCOUNT_ID);
+  const balance = await balanceQuery.execute(client);
+  const hbarBalance = balance.hbars.toBigNumber().toNumber();
+  console.log(`Third account hbar balance: ${hbarBalance}`);
+  assert.ok(hbarBalance >= expectedHbarBalance, `Insufficient hbar: ${hbarBalance} < ${expectedHbarBalance}`);
+
+  if (!balance.tokens) {
+    const associateTx = new TokenAssociateTransaction()
+      .setAccountId(THIRD_ACCOUNT_ID)
+      .setTokenIds([tokenId]);
+    console.log("Associating third account with token...");
+    const associateResponse = await associateTx.execute(client);
+    const associateReceipt = await associateResponse.getReceipt(client);
+    assert.equal(associateReceipt.status, Status.Success, `Token association failed: ${associateReceipt.status}`);
+  }
+
+  const tokenBalance = balance.tokens ? balance.tokens.get(tokenId)?.toNumber() || 0 : 0;
+  console.log(`Third account token balance: ${tokenBalance}`);
+
+  if (tokenBalance < expectedTokenBalance) {
+    const firstAccount = accounts[0];
+    const FIRST_ACCOUNT_ID = AccountId.fromString(firstAccount.id);
+    const FIRST_PRIVATE_KEY = PrivateKey.fromStringED25519(firstAccount.privateKey);
+    client.setOperator(FIRST_ACCOUNT_ID, FIRST_PRIVATE_KEY);
+
+    const mintAmount = expectedTokenBalance - tokenBalance;
+    const mintTx = new TokenMintTransaction()
+      .setTokenId(tokenId)
+      .setAmount(mintAmount);
+
+    console.log(`Minting ${mintAmount} tokens for third account...`);
+    const txResponse = await mintTx.execute(client);
+    const receipt = await txResponse.getReceipt(client);
+    assert.equal(receipt.status, Status.Success, `Token mint failed: ${receipt.status}`);
+  } else if (tokenBalance > expectedTokenBalance) {
+    const firstAccount = accounts[0];
+    const FIRST_ACCOUNT_ID = AccountId.fromString(firstAccount.id);
+    const FIRST_PRIVATE_KEY = PrivateKey.fromStringED25519(firstAccount.privateKey);
+    client.setOperator(FIRST_ACCOUNT_ID, FIRST_PRIVATE_KEY);
+
+    const burnAmount = tokenBalance - expectedTokenBalance;
+    const burnTx = new TokenBurnTransaction()
+      .setTokenId(tokenId)
+      .setAmount(burnAmount);
+
+    console.log(`Burning ${burnAmount} tokens from third account...`);
+    const txResponse = await burnTx.execute(client);
+    const receipt = await txResponse.getReceipt(client);
+    assert.equal(receipt.status, Status.Success, `Token burn failed: ${receipt.status}`);
+  }
+
+  client.setOperator(THIRD_ACCOUNT_ID, THIRD_PRIVATE_KEY);
+  const finalBalanceQuery = new AccountBalanceQuery().setAccountId(THIRD_ACCOUNT_ID);
+  const finalBalance = await finalBalanceQuery.execute(client);
+  const finalHbarBalance = finalBalance.hbars.toBigNumber().toNumber();
+  const finalTokenBalance = finalBalance.tokens ? finalBalance.tokens.get(tokenId)?.toNumber() || 0 : 0;
+  console.log(`Final third account hbar balance: ${finalHbarBalance}, token balance: ${finalTokenBalance}`);
+  assert.ok(finalHbarBalance >= expectedHbarBalance, `Final hbar balance too low: ${finalHbarBalance} < ${expectedHbarBalance}`);
+  assert.equal(finalTokenBalance, expectedTokenBalance, `Token balance mismatch: expected ${expectedTokenBalance}, got ${finalTokenBalance}`);
 });
-Given(/^A third Hedera account with (\d+) hbar and (\d+) HTT tokens$/, async function () {
 
+// Corrected step: Fourth account with X hbar and Y HTT tokens
+Given(/^A fourth Hedera account with (\d+) hbar and (\d+) HTT tokens$/, async function (expectedHbarBalance: number, expectedTokenBalance: number) {
+  const account = accounts[3];
+  const FOURTH_ACCOUNT_ID = AccountId.fromString(account.id);
+  const FOURTH_PRIVATE_KEY = PrivateKey.fromStringED25519(account.privateKey);
+  client.setOperator(FOURTH_ACCOUNT_ID, FOURTH_PRIVATE_KEY);
+
+  const tokenId = this.tokenId;
+  assert.ok(tokenId, "Token ID not found. Ensure token creation step ran first.");
+
+  const balanceQuery = new AccountBalanceQuery().setAccountId(FOURTH_ACCOUNT_ID);
+  const balance = await balanceQuery.execute(client);
+  const hbarBalance = balance.hbars.toBigNumber().toNumber();
+  console.log(`Fourth account hbar balance: ${hbarBalance}`);
+  assert.ok(hbarBalance >= expectedHbarBalance, `Insufficient hbar: ${hbarBalance} < ${expectedHbarBalance}`);
+
+  if (!balance.tokens) {
+    const associateTx = new TokenAssociateTransaction()
+      .setAccountId(FOURTH_ACCOUNT_ID)
+      .setTokenIds([tokenId]);
+    console.log("Associating fourth account with token...");
+    const associateResponse = await associateTx.execute(client);
+    const associateReceipt = await associateResponse.getReceipt(client);
+    assert.equal(associateReceipt.status, Status.Success, `Token association failed: ${associateReceipt.status}`);
+  }
+
+  const tokenBalance = balance.tokens ? balance.tokens.get(tokenId)?.toNumber() || 0 : 0;
+  console.log(`Fourth account token balance: ${tokenBalance}`);
+
+  if (tokenBalance < expectedTokenBalance) {
+    const firstAccount = accounts[0];
+    const FIRST_ACCOUNT_ID = AccountId.fromString(firstAccount.id);
+    const FIRST_PRIVATE_KEY = PrivateKey.fromStringED25519(firstAccount.privateKey);
+    client.setOperator(FIRST_ACCOUNT_ID, FIRST_PRIVATE_KEY);
+
+    const mintAmount = expectedTokenBalance - tokenBalance;
+    const mintTx = new TokenMintTransaction()
+      .setTokenId(tokenId)
+      .setAmount(mintAmount);
+
+    console.log(`Minting ${mintAmount} tokens for fourth account...`);
+    const txResponse = await mintTx.execute(client);
+    const receipt = await txResponse.getReceipt(client);
+    assert.equal(receipt.status, Status.Success, `Token mint failed: ${receipt.status}`);
+  } else if (tokenBalance > expectedTokenBalance) {
+    const firstAccount = accounts[0]; // Corrected from WESTERN_DIGITAL
+    const FIRST_ACCOUNT_ID = AccountId.fromString(firstAccount.id);
+    const FIRST_PRIVATE_KEY = PrivateKey.fromStringED25519(firstAccount.privateKey);
+    client.setOperator(FIRST_ACCOUNT_ID, FIRST_PRIVATE_KEY);
+
+    const burnAmount = tokenBalance - expectedTokenBalance;
+    const burnTx = new TokenBurnTransaction()
+      .setTokenId(tokenId)
+      .setAmount(burnAmount);
+
+    console.log(`Burning ${burnAmount} tokens from fourth account...`);
+    const txResponse = await burnTx.execute(client);
+    const receipt = await txResponse.getReceipt(client);
+    assert.equal(receipt.status, Status.Success, `Token burn failed: ${receipt.status}`);
+  }
+
+  client.setOperator(FOURTH_ACCOUNT_ID, FOURTH_PRIVATE_KEY);
+  const finalBalanceQuery = new AccountBalanceQuery().setAccountId(FOURTH_ACCOUNT_ID);
+  const finalBalance = await finalBalanceQuery.execute(client);
+  const finalHbarBalance = finalBalance.hbars.toBigNumber().toNumber();
+  const finalTokenBalance = finalBalance.tokens ? finalBalance.tokens.get(tokenId)?.toNumber() || 0 : 0;
+  console.log(`Final fourth account hbar balance: ${finalHbarBalance}, token balance: ${finalTokenBalance}`);
+  assert.ok(finalHbarBalance >= expectedHbarBalance, `Final hbar balance too low: ${finalHbarBalance} < ${expectedHbarBalance}`);
+  assert.equal(finalTokenBalance, expectedTokenBalance, `Token balance mismatch: expected ${expectedTokenBalance}, got ${finalTokenBalance}`);
 });
-Given(/^A fourth Hedera account with (\d+) hbar and (\d+) HTT tokens$/, async function () {
 
-});
-When(/^A transaction is created to transfer (\d+) HTT tokens out of the first and second account and (\d+) HTT tokens into the third account and (\d+) HTT tokens into the fourth account$/, async function () {
+// Existing step: Transaction to transfer X HTT tokens out of first and second accounts and Y/Z tokens into third/fourth accounts
+When(/^A transaction is created to transfer (\d+) HTT tokens out of the first and second account and (\d+) HTT tokens into the third account and (\d+) HTT tokens into the fourth account$/, async function (outAmount: number, thirdAmount: number, fourthAmount: number) {
+  const firstAccount = accounts[0];
+  const FIRST_ACCOUNT_ID = AccountId.fromString(firstAccount.id);
+  const FIRST_PRIVATE_KEY = PrivateKey.fromStringED25519(firstAccount.privateKey);
+  const secondAccount = accounts[1];
+  const SECOND_ACCOUNT_ID = AccountId.fromString(secondAccount.id);
+  const thirdAccount = accounts[2];
+  const THIRD_ACCOUNT_ID = AccountId.fromString(thirdAccount.id);
+  const fourthAccount = accounts[3];
+  const FOURTH_ACCOUNT_ID = AccountId.fromString(fourthAccount.id);
+  client.setOperator(FIRST_ACCOUNT_ID, FIRST_PRIVATE_KEY);
 
-});
-Then(/^The third account holds (\d+) HTT tokens$/, async function () {
+  const tokenId = this.tokenId;
+  assert.ok(tokenId, "Token ID not found. Ensure token creation step ran first.");
 
-});
-Then(/^The fourth account holds (\d+) HTT tokens$/, async function () {
+  const firstBalanceQuery = new AccountBalanceQuery().setAccountId(FIRST_ACCOUNT_ID);
+  const firstBalance = await firstBalanceQuery.execute(client);
+  const firstTokenBalance = firstBalance.tokens ? firstBalance.tokens.get(tokenId)?.toNumber() || 0 : 0;
+  console.log(`First account token balance before transfer: ${firstTokenBalance}`);
+  assert.ok(firstTokenBalance >= outAmount, `First account insufficient tokens: ${firstTokenBalance} < ${outAmount}`);
 
+  const secondBalanceQuery = new AccountBalanceQuery().setAccountId(SECOND_ACCOUNT_ID);
+  const secondBalance = await secondBalanceQuery.execute(client);
+  const secondTokenBalance = secondBalance.tokens ? secondBalance.tokens.get(tokenId)?.toNumber() || 0 : 0;
+  console.log(`Second account token balance before transfer: ${secondTokenBalance}`);
+  assert.ok(secondTokenBalance >= outAmount, `Second account insufficient tokens: ${secondTokenBalance} < ${outAmount}`);
+
+  const transferTx = new TransferTransaction()
+    .addTokenTransfer(tokenId, FIRST_ACCOUNT_ID, -outAmount)
+    .addTokenTransfer(tokenId, SECOND_ACCOUNT_ID, -outAmount)
+    .addTokenTransfer(tokenId, THIRD_ACCOUNT_ID, thirdAmount)
+    .addTokenTransfer(tokenId, FOURTH_ACCOUNT_ID, fourthAmount);
+
+  console.log(`Created transfer transaction: ${outAmount} HTT tokens from first and second accounts, ${thirdAmount} to third account, ${fourthAmount} to fourth account`);
+  this.transferTx = transferTx;
+
+  try {
+    console.log("Submitting multi-account transfer transaction...");
+    const txResponse = await transferTx.execute(client);
+    console.log("Fetching transaction receipt...");
+    const receipt = await txResponse.getReceipt(client);
+    assert.equal(receipt.status, Status.Success, `Transfer transaction failed: ${receipt.status}`);
+    console.log("Multi-account transfer transaction submitted successfully");
+  } catch (error) {
+    throw new Error(`Transfer submission failed: ${error}`);
+  }
 });
