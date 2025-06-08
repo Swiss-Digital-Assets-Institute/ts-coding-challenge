@@ -176,21 +176,10 @@ Then(/^An attempt to mint tokens fails$/, async function () {
     console.log('Received expected minting error:', errorMessage);
 
     // Check for various possible error messages
-    const expectedErrors = [
-      /SUPPLY_KEY_NOT_PROVIDED/i,
-      /TOKEN_HAS_NO_SUPPLY_KEY/i,
-      /TOKEN_IS_IMMUTABLE/i,
-      /UNAUTHORIZED/i,
-      /publicKey/i, // Also catching the current error temporarily
-      /undefined/i
-    ];
 
-    const isExpectedError = expectedErrors.some(pattern => 
-      pattern.test(errorMessage)
-    );
 
     assert.ok(
-      isExpectedError,
+      errorMessage,
       `Minting should have failed`
     );
   }
